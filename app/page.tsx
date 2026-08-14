@@ -73,6 +73,7 @@ export default function Home() {
     }
     void supabase.auth.getUser().then(({ data }) => {
       if (data.user && !params.get('auth') && !params.get('authError')) setScreen('intro');
+      if (params.get('code')) window.history.replaceState({}, '', window.location.pathname);
     });
   }, []);
 
