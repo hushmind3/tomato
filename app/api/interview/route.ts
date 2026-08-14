@@ -12,8 +12,8 @@ export async function POST(request: Request) {
           const candidate = message as { role?: unknown; content?: unknown };
           return (candidate.role === 'user' || candidate.role === 'assistant') && typeof candidate.content === 'string' && candidate.content.trim().length > 0;
         })
-        .slice(-24)
-        .map((message: { role: 'user' | 'assistant'; content: string }) => ({ role: message.role, content: message.content.trim().slice(0, 6000) }))
+        .slice(-12)
+        .map((message: { role: 'user' | 'assistant'; content: string }) => ({ role: message.role, content: message.content.trim().slice(0, 4000) }))
     : [];
 
   if (messages.length === 0 || messages.at(-1)?.role !== 'user') {
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
       input: messages,
       reasoning: { effort: 'low' },
       text: { verbosity: 'low', format: { type: 'json_schema', name: 'tomato_connection_interview', strict: true, schema: TOMATO_INTERVIEW_SCHEMA } },
-      max_output_tokens: 1800,
+      max_output_tokens: 1200,
       store: false,
     });
 

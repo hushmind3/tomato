@@ -86,14 +86,38 @@ export default function Home() {
     if (error) setAuthError(error.message);
   };
 
+  const signOut = async () => {
+    setAuthError('');
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      setAuthError(`로그아웃하지 못했습니다: ${error.message}`);
+      return;
+    }
+    setSessions([]);
+    setCurrentSessionId(null);
+    setTurns([]);
+    setInterviewResult(null);
+    setMessage('');
+    setInterviewError('');
+    window.history.replaceState({}, '', window.location.pathname);
+    go('home');
+  };
+
   const createConversation = async (title: string) => {
     const response = await fetch('/api/conversations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title }),
     }).catch(() => null);
-    if (!response || !response.ok) return null;
+    if (!response) {
+      setInterviewError('인터뷰를 저장할 서버에 연결하지 못했습니다.');
+      return null;
+    }
     const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      setInterviewError(data?.error ?? '인터뷰 세션을 저장하지 못했습니다.');
+      return null;
+    }
     return data?.conversation as { id: string } | null;
   };
 
@@ -103,7 +127,16 @@ export default function Home() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ role, content }),
     }).catch(() => null);
-    return Boolean(response?.ok);
+    if (!response) {
+      setInterviewError('인터뷰 내용을 저장할 서버에 연결하지 못했습니다.');
+      return false;
+    }
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      setInterviewError(data?.error ?? '인터뷰 내용을 저장하지 못했습니다.');
+      return false;
+    }
+    return true;
   };
 
   const ensureConversation = async (sessionId: string | null, title: string) => {
@@ -191,19 +224,23 @@ export default function Home() {
     setIsInterviewing(true);
 
     try {
-      const conversationId = await ensureConversation(sessionId, content.slice(0, 80));
-      if (conversationId) await saveMessage(conversationId, 'user', content);
-      const response = await fetch('/api/interview', {
+      // Start the AI request immediately while the first conversation row is created.
+      // This keeps Supabase persistence from adding a full extra wait to every turn.
+      const aiResponsePromise = fetch('/api/interview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: nextTurns }),
       });
+      const conversationId = await ensureConversation(sessionId, content.slice(0, 80));
+      const userSavePromise = conversationId ? saveMessage(conversationId, 'user', content) : Promise.resolve(false);
+      const response = await aiResponsePromise;
       const data = await response.json();
       if (!response.ok || !data.result) throw new Error(data.error ?? 'AI 인터뷰를 계속하지 못했습니다.');
 
       const result = data.result as TomatoInterviewResult;
       setTurns([...nextTurns, { role: 'assistant', content: result.assistant_message }]);
       setInterviewResult(result);
+      await userSavePromise;
       if (conversationId) {
         await saveMessage(conversationId, 'assistant', result.assistant_message);
         await fetch(`/api/conversations/${conversationId}`, {
@@ -227,7 +264,7 @@ export default function Home() {
   };
 
   return <main className={`shell ${screen === 'home' || screen === 'signup' || screen === 'intro' ? 'prechat' : ''}`}>
-    {screen !== 'home' && <aside className={`sidebar ${sidebarOpen ? 'open' : 'collapsed'}`}><div className="side-head"><button className="sidebar-toggle" aria-label={sidebarOpen ? '사이드바 접기' : '사이드바 펼치기'} onClick={() => setSidebarOpen((open) => !open)}>☰</button>{sidebarOpen && <div className="side-logo">tomato <em>global</em></div>}</div>{sidebarOpen && <><button onClick={startNewMatching} className="new">＋ 새 매칭 시작</button><div className="session-list">{sessions.length === 0 ? <div className="empty-session">새 매칭을 시작하면<br/>여기에 남습니다.</div> : sessions.map((session) => <div key={session.id} className={`session-row ${session.id === currentSessionId ? 'active' : ''}`}><button onClick={() => openSession(session)} className="session"><span>◌</span><span className="session-title">{session.title}</span></button><button className="session-delete" aria-label={`${session.title} 삭제`} onClick={() => void deleteSession(session)}>×</button></div>)}</div><div className="side-spacer"/><button className="side-link">◎ 마이페이지</button><button className="side-link">⚙ 설정</button></>}</aside>}
+    {screen !== 'home' && <aside className={`sidebar ${sidebarOpen ? 'open' : 'collapsed'}`}><div className="side-head"><button className="sidebar-toggle" aria-label={sidebarOpen ? '사이드바 접기' : '사이드바 펼치기'} onClick={() => setSidebarOpen((open) => !open)}>☰</button>{sidebarOpen && <div className="side-logo">tomato <em>global</em></div>}</div>{sidebarOpen && <><button onClick={startNewMatching} className="new">＋ 새 매칭 시작</button><div className="session-list">{sessions.length === 0 ? <div className="empty-session">새 매칭을 시작하면<br/>여기에 남습니다.</div> : sessions.map((session) => <div key={session.id} className={`session-row ${session.id === currentSessionId ? 'active' : ''}`}><button onClick={() => openSession(session)} className="session"><span>◌</span><span className="session-title">{session.title}</span></button><button className="session-delete" aria-label={`${session.title} 삭제`} onClick={() => void deleteSession(session)}>×</button></div>)}</div><div className="side-spacer"/><button className="side-link">◎ 마이페이지</button><button className="side-link">⚙ 설정</button><button className="side-link" onClick={() => void signOut()}>↪ 로그아웃</button></>}</aside>}
     <section className="workspace"><header className="topbar">{screen !== 'home' && <button className="topbar-toggle" aria-label={sidebarOpen ? '사이드바 접기' : '사이드바 펼치기'} onClick={() => setSidebarOpen((open) => !open)}>☰</button>}<span>{labels[screen]}</span></header><div className="content">
       {screen === 'home' && <div className="landing"><div className="eyebrow">TOMATO</div><h1>tomato 안에서<br/>필요한 기회를 찾아보세요</h1><p>사람, 팀, 일, 기업, 협업 등을 연결합니다.</p><button className="start-card" onClick={() => go('signup')}><strong>시작하기</strong><span>가입 후 바로 AI 인터뷰를 시작합니다.</span></button></div>}
       {screen === 'signup' && <div className="simple-form"><h2>tomato 시작하기</h2><p>가입 후 바로 AI 인터뷰를 시작합니다.</p><button className="social" onClick={() => void signInWithProvider('google')}>G&nbsp;&nbsp; Google로 계속하기</button><button className="social" onClick={() => void signInWithProvider('apple')}>&nbsp;&nbsp; Apple로 계속하기</button>{authError && <div className="inline-error" role="alert">{authError}</div>}<small>계속하면 tomato의 이용약관과 개인정보처리방침에 동의하게 됩니다.</small></div>}
