@@ -33,22 +33,56 @@ export async function POST(request: Request) {
     if (profileError) return NextResponse.json({ error: profileError.message }, { status: 400 });
   }
 
-  const { data, error } = await admin.from('listings').insert({
+  const status = body.status === 'draft' ? 'draft' : 'active';
+  const sourceConversationId = typeof body.sourceConversationId === 'string' ? body.sourceConversationId : null;
+  const listingValues = {
     actor_id: membership.actor_id,
     intent: body.intent === 'offering' ? 'offering' : 'seeking',
     category: typeof body.category === 'string' && body.category.trim() ? body.category.trim() : 'other',
     title: body.title.trim(),
     summary: body.summary.trim(),
     requirements: body.requirements && typeof body.requirements === 'object' ? body.requirements : {},
-    source_conversation_id: body.sourceConversationId ?? null,
-  }).select().single();
+    source_conversation_id: sourceConversationId,
+    status,
+    updated_at: new Date().toISOString(),
+  };
+
+  let data;
+  let error;
+  if (status === 'draft' && sourceConversationId) {
+    const { data: existing } = await admin
+      .from('listings')
+      .select('id')
+      .eq('actor_id', membership.actor_id)
+      .eq('source_conversation_id', sourceConversationId)
+      .eq('status', 'draft')
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (existing) {
+      ({ data, error } = await admin.from('listings').update(listingValues).eq('id', existing.id).select().single());
+    } else {
+      ({ data, error } = await admin.from('listings').insert(listingValues).select().single());
+    }
+  } else {
+    ({ data, error } = await admin.from('listings').insert(listingValues).select().single());
+  }
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json({ listing: data }, { status: 201 });
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const supabase = await createSupabaseServerClient();
-  const { data: listings, error } = await supabase.from('listings').select('id, actor_id, intent, category, title, summary, requirements, status, created_at').eq('status', 'active').limit(20);
+  const query = new URL(request.url).searchParams;
+  let listingsQuery = supabase.from('listings').select('id, actor_id, intent, category, title, summary, requirements, status, created_at, source_conversation_id').eq('status', 'active');
+  if (query.get('mine') === '1') {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+    const { data: membership } = await supabase.from('actor_members').select('actor_id').eq('user_id', user.id).in('role', ['owner', 'admin']).limit(1).maybeSingle();
+    if (!membership) return NextResponse.json({ listings: [] });
+    listingsQuery = listingsQuery.eq('actor_id', membership.actor_id);
+  }
+  const { data: listings, error } = await listingsQuery.order('created_at', { ascending: false }).limit(20);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json({ listings });
 }

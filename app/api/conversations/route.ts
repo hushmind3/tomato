@@ -16,12 +16,20 @@ export async function GET() {
   const ids = (conversations ?? []).map((conversation) => conversation.id);
   if (ids.length === 0) return NextResponse.json({ conversations: [] });
 
-  const { data: messages, error: messageError } = await supabase
-    .from('messages')
-    .select('id, conversation_id, role, content, created_at')
-    .in('conversation_id', ids)
-    .order('created_at', { ascending: true });
+  const [{ data: messages, error: messageError }, { data: listings, error: listingError }] = await Promise.all([
+    supabase
+      .from('messages')
+      .select('id, conversation_id, role, content, created_at')
+      .in('conversation_id', ids)
+      .order('created_at', { ascending: true }),
+    supabase
+      .from('listings')
+      .select('id, source_conversation_id, intent, category, title, summary, requirements, status, created_at, updated_at')
+      .in('source_conversation_id', ids)
+      .order('updated_at', { ascending: false }),
+  ]);
   if (messageError) return NextResponse.json({ error: messageError.message }, { status: 400 });
+  if (listingError) return NextResponse.json({ error: listingError.message }, { status: 400 });
 
   const messagesByConversation = new Map<string, typeof messages>();
   for (const message of messages ?? []) {
@@ -30,7 +38,18 @@ export async function GET() {
     messagesByConversation.set(message.conversation_id, list);
   }
 
-  return NextResponse.json({ conversations: (conversations ?? []).map((conversation) => ({ ...conversation, messages: messagesByConversation.get(conversation.id) ?? [] })) });
+  const listingByConversation = new Map<string, NonNullable<typeof listings>[number]>();
+  for (const listing of listings ?? []) {
+    if (listing.source_conversation_id && !listingByConversation.has(listing.source_conversation_id)) {
+      listingByConversation.set(listing.source_conversation_id, listing);
+    }
+  }
+
+  return NextResponse.json({ conversations: (conversations ?? []).map((conversation) => ({
+    ...conversation,
+    messages: messagesByConversation.get(conversation.id) ?? [],
+    listing: listingByConversation.get(conversation.id) ?? null,
+  })) });
 }
 
 export async function POST(request: Request) {

@@ -24,6 +24,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     title: body.title.trim(),
     summary: body.summary.trim(),
     requirements: body.requirements && typeof body.requirements === 'object' ? body.requirements : {},
+    status: body.status === 'active' ? 'active' : body.status === 'draft' ? 'draft' : undefined,
     updated_at: new Date().toISOString(),
   }).eq('id', id).eq('actor_id', membership.actor_id).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
