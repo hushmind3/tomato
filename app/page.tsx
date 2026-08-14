@@ -21,29 +21,40 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isInterviewing, setIsInterviewing] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
+  const [showMatch, setShowMatch] = useState(false);
+  const [showConnection, setShowConnection] = useState(false);
   const [interviewError, setInterviewError] = useState('');
   const [authError, setAuthError] = useState('');
+  const [authReady, setAuthReady] = useState(false);
+  const [conversationsReady, setConversationsReady] = useState(false);
   const go = (next: Screen) => setScreen(next);
 
   useEffect(() => {
     let cancelled = false;
     const restoreConversations = async () => {
-      const response = await fetch('/api/conversations', { cache: 'no-store' }).catch(() => null);
-      if (!response || !response.ok || cancelled) return;
-      const data = await response.json().catch(() => null);
-      if (!data?.conversations || cancelled) return;
-      const restored: MatchingSession[] = data.conversations.map((conversation: { id: string; title: string | null; messages?: { role: string; content: string }[] }) => ({
-        id: `matching-${conversation.id}`,
-        conversationId: conversation.id,
-        title: conversation.title || '새 매칭',
-        turns: (conversation.messages ?? [])
-          .filter((message) => message.role === 'user' || message.role === 'assistant')
-          .map((message) => ({ role: message.role as 'user' | 'assistant', content: message.content })),
-        result: null,
-      }));
-      setSessions(restored);
-      if (restored[0]) {
-        setCurrentSessionId((current) => current ?? restored[0].id);
+      try {
+        const response = await fetch('/api/conversations', { cache: 'no-store' }).catch(() => null);
+        if (!response || !response.ok || cancelled) return;
+        const data = await response.json().catch(() => null);
+        if (!data?.conversations || cancelled) return;
+        const restored: MatchingSession[] = data.conversations.map((conversation: { id: string; title: string | null; messages?: { role: string; content: string }[] }) => ({
+          id: `matching-${conversation.id}`,
+          conversationId: conversation.id,
+          title: conversation.title || '새 매칭',
+          turns: (conversation.messages ?? [])
+            .filter((message) => message.role === 'user' || message.role === 'assistant')
+            .map((message) => ({ role: message.role as 'user' | 'assistant', content: message.content })),
+          result: null,
+        }));
+        setSessions(restored);
+        if (restored[0]) {
+          setCurrentSessionId((current) => current ?? restored[0].id);
+          setTurns(restored[0].turns);
+          setInterviewResult(restored[0].result);
+          setScreen('interview');
+        }
+      } finally {
+        if (!cancelled) setConversationsReady(true);
       }
     };
     void restoreConversations();
@@ -62,6 +73,15 @@ export default function Home() {
   }, [currentSessionId, interviewResult, turns]);
 
   useEffect(() => {
+    if (screen !== 'intro' || sessions.length === 0) return;
+    const latest = sessions[0];
+    setCurrentSessionId(latest.id);
+    setTurns(latest.turns);
+    setInterviewResult(latest.result);
+    setScreen('interview');
+  }, [screen, sessions]);
+
+  useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('auth') === 'success') {
       setScreen('intro');
@@ -74,7 +94,7 @@ export default function Home() {
     void supabase.auth.getUser().then(({ data }) => {
       if (data.user && !params.get('auth') && !params.get('authError')) setScreen('intro');
       if (params.get('code')) window.history.replaceState({}, '', window.location.pathname);
-    });
+    }).finally(() => setAuthReady(true));
   }, []);
 
   const signInWithProvider = async (provider: 'google' | 'apple') => {
@@ -93,10 +113,13 @@ export default function Home() {
       setAuthError(`로그아웃하지 못했습니다: ${error.message}`);
       return;
     }
-    setSessions([]);
+    // Logging out must not delete or discard saved matching sessions.
+    // They remain in Supabase and are restored after the next login.
     setCurrentSessionId(null);
     setTurns([]);
     setInterviewResult(null);
+    setShowMatch(false);
+    setShowConnection(false);
     setMessage('');
     setInterviewError('');
     window.history.replaceState({}, '', window.location.pathname);
@@ -165,6 +188,8 @@ export default function Home() {
     setCurrentSessionId(session.id);
     setTurns(session.turns);
     setInterviewResult(session.result);
+    setShowMatch(false);
+    setShowConnection(false);
     setMessage('');
     setInterviewError('');
     setSidebarOpen(true);
@@ -203,7 +228,8 @@ export default function Home() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? '등록하지 못했습니다.');
-      go('match');
+      setShowMatch(true);
+      go('interview');
     } catch (error) {
       setInterviewError(error instanceof Error ? error.message : '등록하지 못했습니다.');
       go('review');
@@ -253,7 +279,7 @@ export default function Home() {
       if (result.next_action === 'ask') {
         go('interview');
       } else {
-        go('review');
+        go('interview');
         if (result.next_action === 'register_and_match') await registerListing(result);
       }
     } catch (error) {
@@ -263,19 +289,32 @@ export default function Home() {
     }
   };
 
+  if (!authReady || !conversationsReady) {
+    return <main className="shell prechat"><section className="workspace"><div className="content"><div className="boot-screen" aria-label="tomato 불러오는 중">tomato</div></div></section></main>;
+  }
+
   return <main className={`shell ${screen === 'home' || screen === 'signup' || screen === 'intro' ? 'prechat' : ''}`}>
     {screen !== 'home' && <aside className={`sidebar ${sidebarOpen ? 'open' : 'collapsed'}`}><div className="side-head"><button className="sidebar-toggle" aria-label={sidebarOpen ? '사이드바 접기' : '사이드바 펼치기'} onClick={() => setSidebarOpen((open) => !open)}>☰</button>{sidebarOpen && <div className="side-logo">tomato <em>global</em></div>}</div>{sidebarOpen && <><button onClick={startNewMatching} className="new">＋ 새 매칭 시작</button><div className="session-list">{sessions.length === 0 ? <div className="empty-session">새 매칭을 시작하면<br/>여기에 남습니다.</div> : sessions.map((session) => <div key={session.id} className={`session-row ${session.id === currentSessionId ? 'active' : ''}`}><button onClick={() => openSession(session)} className="session"><span>◌</span><span className="session-title">{session.title}</span></button><button className="session-delete" aria-label={`${session.title} 삭제`} onClick={() => void deleteSession(session)}>×</button></div>)}</div><div className="side-spacer"/><button className="side-link">◎ 마이페이지</button><button className="side-link">⚙ 설정</button><button className="side-link" onClick={() => void signOut()}>↪ 로그아웃</button></>}</aside>}
     <section className="workspace"><header className="topbar">{screen !== 'home' && <button className="topbar-toggle" aria-label={sidebarOpen ? '사이드바 접기' : '사이드바 펼치기'} onClick={() => setSidebarOpen((open) => !open)}>☰</button>}<span>{labels[screen]}</span></header><div className="content">
       {screen === 'home' && <div className="landing"><div className="eyebrow">TOMATO</div><h1>tomato 안에서<br/>필요한 기회를 찾아보세요</h1><p>사람, 팀, 일, 기업, 협업 등을 연결합니다.</p><button className="start-card" onClick={() => go('signup')}><strong>시작하기</strong><span>가입 후 바로 AI 인터뷰를 시작합니다.</span></button></div>}
       {screen === 'signup' && <div className="simple-form"><h2>tomato 시작하기</h2><p>가입 후 바로 AI 인터뷰를 시작합니다.</p><button className="social" onClick={() => void signInWithProvider('google')}>G&nbsp;&nbsp; Google로 계속하기</button><button className="social" onClick={() => void signInWithProvider('apple')}>&nbsp;&nbsp; Apple로 계속하기</button>{authError && <div className="inline-error" role="alert">{authError}</div>}<small>계속하면 tomato의 이용약관과 개인정보처리방침에 동의하게 됩니다.</small></div>}
       {screen === 'intro' && <div className="landing"><h1>원하는 기회와<br/>맞는 상대를 연결합니다</h1><p>AI가 필요한 조건을 파악해<br/>tomato에 등록된 사람·팀·기업과 연결합니다.</p><button className="primary start-button" onClick={startNewMatching}>AI 인터뷰 시작</button></div>}
-      {(screen === 'interview' || screen === 'review') && <div className="chat-screen"><div className="messages" aria-live="polite">{turns.map((turn, index) => turn.role === 'user' ? <div className="user-bubble" key={`${turn.role}-${index}`}>{turn.content}</div> : <div className="assistant" key={`${turn.role}-${index}`}>{turn.content}</div>)}{isInterviewing && <div className="assistant pending">조건 파악 중…</div>}{screen === 'review' && interviewResult && <ListingDraftCard result={interviewResult} registering={isRegistering} onRegister={() => registerListing()}/>} {interviewError && <div className="inline-error" role="alert">{interviewError}</div>}</div><Composer value={message} onChange={setMessage} onSend={send} placeholder="무엇을 찾고 계세요?" disabled={isInterviewing || isRegistering}/></div>}
+      {(screen === 'interview' || screen === 'review') && <div className="chat-screen"><div className="messages" aria-live="polite">{turns.map((turn, index) => turn.role === 'user' ? <div className="user-bubble" key={`${turn.role}-${index}`}>{turn.content}</div> : <div className="assistant" key={`${turn.role}-${index}`}>{turn.content}</div>)}{isInterviewing && <div className="assistant pending">조건 파악 중…</div>}{interviewResult && interviewResult.next_action === 'offer_registration' && <ListingDraftCard result={interviewResult} registering={isRegistering} onRegister={() => registerListing()}/>} {showMatch && <InlineMatchCard onInterest={() => { setShowMatch(false); setShowConnection(true); }} onReject={() => { setShowMatch(false); setInterviewError('다른 후보를 찾을 수 있도록 조건을 반영했습니다.'); }}/>} {showConnection && <InlineConnectionCard onChat={() => go('partnerChat')} onReject={() => { setShowConnection(false); setInterviewError('다른 후보를 찾을 수 있도록 조건을 반영했습니다.'); }}/>} {interviewError && <div className="inline-error" role="alert">{interviewError}</div>}</div><Composer value={message} onChange={setMessage} onSend={send} placeholder="무엇을 찾고 계세요?" disabled={isInterviewing || isRegistering}/></div>}
       {screen === 'match' && <div className="result-screen"><button className="back" onClick={() => go('review')}>← 인터뷰로 돌아가기</button><div className="status">● tomato 안에서 찾는 중</div><h2>가장 잘 맞는 기회</h2><div className="card"><h3>일본 · 원격 고객지원팀</h3><p>한국어 고객 문의를 돕는 일본 기업입니다. 상대방과 자동 번역 채팅이 가능합니다.</p><Tags/><div className="actions"><button className="primary" onClick={() => go('connection')}>관심 있어요</button><button onClick={() => go('interview')}>별로예요</button></div></div><Composer value={message} onChange={setMessage} onSend={send} placeholder="조건을 바꾸거나 다시 찾아보세요" disabled={isInterviewing || isRegistering}/></div>}
       {screen === 'connection' && <Detail title="연결된 상대" back={() => go('match')}><p>상대방도 관심을 표시했습니다. 지금 접속 중입니다.</p><div className="card"><h3>일본 · 원격 고객지원팀 <span className="tag">접속 중</span></h3><Row a="업무" b="고객 문의 응대"/><Row a="보수" b="월 ¥220,000~280,000"/><div className="actions"><button className="primary" onClick={() => go('partnerChat')}>상대방과 채팅하기</button><button onClick={() => go('contract')}>계약 조건 보기</button></div></div></Detail>}
       {screen === 'partnerChat' && <div className="chat-screen"><button className="back" onClick={() => go('connection')}>← 연결 상세로 돌아가기</button><h2>일본 · 원격 고객지원팀</h2><div className="status">● 상대방 접속 중 · 자동 번역 켜짐</div><div className="messages"><div className="assistant"><b>Yuki Tanaka · 일본</b><br/>안녕하세요. 고객지원 업무에 관심이 있으신가요?<small>상대방에게 일본어로 표시됨</small></div><div className="user-bubble">네, 근무 조건을 더 알고 싶어요.</div></div><Composer value={message} onChange={setMessage} onSend={() => setMessage('')} placeholder="메시지를 입력하세요"/><button className="primary contract-button" onClick={() => go('contract')}>계약 조건 확인하기</button></div>}
       {screen === 'contract' && <Detail title="계약 조건 확인" back={() => go('partnerChat')}><p>대화 내용을 바탕으로 AI가 초안을 정리했습니다.</p><div className="card"><Row a="업무 범위" b="고객 문의 응대 및 보고"/><Row a="기간" b="2026. 09. 01 ~ 11. 30"/><Row a="보수" b="월 ¥250,000"/><div className="actions"><button className="primary" onClick={() => go('escrow')}>조건 확인하고 서명하기</button><button onClick={() => go('partnerChat')}>대화로 수정하기</button></div></div></Detail>}
       {screen === 'escrow' && <Detail title="tomato 안전거래" back={() => go('contract')}><p>계약금은 먼저 tomato가 보관하고, 작업 완료와 양쪽 확인 후 상대방에게 지급합니다.</p><div className="card"><Row a="보관할 계약금" b="¥250,000"/><Row a="현재 상태" b="결제 전"/><Row a="지급 조건" b="작업 완료 후 확인"/><button className="primary wide" onClick={(e) => { e.currentTarget.textContent = '결제 단계로 이동합니다'; e.currentTarget.disabled = true; }}>계약금 보관하기</button></div></Detail>}
     </div></section></main>;
+}
+
+function InlineMatchCard({ onInterest, onReject }: { onInterest: () => void; onReject: () => void }) {
+  const [expanded, setExpanded] = useState(false);
+  return <div className="card inline-match-card"><div className="status">tomato 안에서 찾았어요</div><h3>일본 · 원격 고객지원팀</h3><p>한국어 고객 문의를 돕는 일본 기업입니다. 상대방과 자동 번역 채팅이 가능합니다.</p><Tags/><div className="row"><span>추천 이유</span><b>원격 근무 · 고객응대 경험 · 언어 조건 일치</b></div>{expanded && <div className="match-details"><Row a="업무" b="한국어 고객 문의 응대"/><Row a="보수" b="월 ¥220,000~280,000"/><Row a="연결 방식" b="상호 관심 후 자동 번역 채팅"/><Row a="주체" b="일본 기업"/></div>}<div className="actions"><button className="primary" onClick={onInterest}>관심 있어요</button><button onClick={onReject}>별로예요</button><button onClick={() => setExpanded((value) => !value)}>{expanded ? '간단히 보기' : '자세히 보기'}</button></div></div>;
+}
+
+function InlineConnectionCard({ onChat, onReject }: { onChat: () => void; onReject: () => void }) {
+  return <div className="card inline-match-card"><div className="status">● 서로 관심이 있어요 · 연결됨</div><h3>일본 · 원격 고객지원팀</h3><p>상대방도 관심을 표시했습니다. 필요한 내용을 대화로 확인해보세요.</p><Tags/><div className="row"><span>대화 언어</span><b>각자 자기 언어로 입력 · 자동 번역</b></div><div className="actions"><button className="primary" onClick={onChat}>상대방과 채팅하기</button><button onClick={onReject}>연결 취소</button></div></div>;
 }
 
 function ListingDraftCard({ result, registering, onRegister }: { result: TomatoInterviewResult; registering: boolean; onRegister: () => void }) {
