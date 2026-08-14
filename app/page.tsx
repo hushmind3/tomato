@@ -22,7 +22,11 @@ export default function Home() {
   const [isInterviewing, setIsInterviewing] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
   const [showMatch, setShowMatch] = useState(false);
+  const [showMatchApproval, setShowMatchApproval] = useState(false);
   const [showConnection, setShowConnection] = useState(false);
+  const [listingRegistered, setListingRegistered] = useState(false);
+  const [registrationDraft, setRegistrationDraft] = useState<TomatoInterviewResult | null>(null);
+  const [registeredListingId, setRegisteredListingId] = useState<string | null>(null);
   const [interviewError, setInterviewError] = useState('');
   const [authError, setAuthError] = useState('');
   const [authReady, setAuthReady] = useState(false);
@@ -41,7 +45,7 @@ export default function Home() {
       messagesEndRef.current?.scrollIntoView({ block: 'end' });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [currentSessionId, isInterviewing, screen, showConnection, showMatch, turns]);
+  }, [currentSessionId, isInterviewing, screen, showConnection, showMatch, showMatchApproval, turns]);
 
   useEffect(() => {
     let cancelled = false;
@@ -133,7 +137,11 @@ export default function Home() {
     setTurns([]);
     setInterviewResult(null);
     setShowMatch(false);
+    setShowMatchApproval(false);
     setShowConnection(false);
+    setListingRegistered(false);
+    setRegistrationDraft(null);
+    setRegisteredListingId(null);
     setMessage('');
     setInterviewError('');
     window.history.replaceState({}, '', window.location.pathname);
@@ -193,6 +201,9 @@ export default function Home() {
     setMessage('');
     setTurns([]);
     setInterviewResult(null);
+    setListingRegistered(false);
+    setRegistrationDraft(null);
+    setRegisteredListingId(null);
     setInterviewError('');
     setSidebarOpen(!window.matchMedia('(max-width: 700px)').matches);
     go('interview');
@@ -203,7 +214,11 @@ export default function Home() {
     setTurns(session.turns);
     setInterviewResult(session.result);
     setShowMatch(false);
+    setShowMatchApproval(false);
     setShowConnection(false);
+    setListingRegistered(false);
+    setRegistrationDraft(null);
+    setRegisteredListingId(null);
     setMessage('');
     setInterviewError('');
     if (window.matchMedia('(max-width: 700px)').matches) setSidebarOpen(false);
@@ -230,19 +245,21 @@ export default function Home() {
     }
   };
 
-  const registerListing = async (result = interviewResult) => {
-    if (!result || isRegistering) return;
+  const registerListing = async (result = registrationDraft ?? interviewResult) => {
+    if (!result || isRegistering || listingRegistered) return;
     setIsRegistering(true);
     setInterviewError('');
     try {
-      const response = await fetch('/api/listings', {
-        method: 'POST',
+      const response = await fetch(registeredListingId ? `/api/listings/${registeredListingId}` : '/api/listings', {
+        method: registeredListingId ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...result.listing_draft, profilePatch: result.profile_patch, sourceConversationId: sessions.find((session) => session.id === currentSessionId)?.conversationId ?? null }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? '등록하지 못했습니다.');
-      setShowMatch(true);
+      if (!registeredListingId && data.listing?.id) setRegisteredListingId(data.listing.id);
+      setListingRegistered(true);
+      setShowMatchApproval(true);
       go('interview');
     } catch (error) {
       setInterviewError(error instanceof Error ? error.message : '등록하지 못했습니다.');
@@ -261,6 +278,7 @@ export default function Home() {
     setTurns(nextTurns);
     setMessage('');
     setInterviewError('');
+    setShowMatchApproval(false);
     setIsInterviewing(true);
 
     try {
@@ -280,6 +298,11 @@ export default function Home() {
       const result = data.result as TomatoInterviewResult;
       setTurns([...nextTurns, { role: 'assistant', content: result.assistant_message }]);
       setInterviewResult(result);
+      if (result.next_action === 'offer_registration') {
+        setRegistrationDraft(result);
+        setListingRegistered(false);
+        setShowMatchApproval(false);
+      }
       await userSavePromise;
       if (conversationId) {
         await saveMessage(conversationId, 'assistant', result.assistant_message);
@@ -314,7 +337,7 @@ export default function Home() {
       {screen === 'home' && <div className="landing"><div className="eyebrow">TOMATO</div><h1>tomato 안에서<br/>필요한 기회를 찾아보세요</h1><p>사람, 팀, 일, 기업, 협업 등을 연결합니다.</p><button className="start-card" onClick={() => go('signup')}><strong>시작하기</strong><span>가입 후 바로 AI 인터뷰를 시작합니다.</span></button></div>}
       {screen === 'signup' && <div className="simple-form"><h2>tomato 시작하기</h2><p>가입 후 바로 AI 인터뷰를 시작합니다.</p><button className="social" onClick={() => void signInWithProvider('google')}>G&nbsp;&nbsp; Google로 계속하기</button><button className="social" onClick={() => void signInWithProvider('apple')}>&nbsp;&nbsp; Apple로 계속하기</button>{authError && <div className="inline-error" role="alert">{authError}</div>}<small>계속하면 tomato의 이용약관과 개인정보처리방침에 동의하게 됩니다.</small></div>}
       {screen === 'intro' && <div className="landing"><h1>원하는 기회와<br/>맞는 상대를 연결합니다</h1><p>AI가 필요한 조건을 파악해<br/>tomato에 등록된 사람·팀·기업과 연결합니다.</p><button className="primary start-button" onClick={startNewMatching}>AI 인터뷰 시작</button></div>}
-      {(screen === 'interview' || screen === 'review') && <div className="chat-screen"><div className="messages" aria-live="polite">{turns.map((turn, index) => turn.role === 'user' ? <div className="user-bubble" key={`${turn.role}-${index}`}>{turn.content}</div> : <div className="assistant" key={`${turn.role}-${index}`}>{turn.content}</div>)}{isInterviewing && <div className="assistant pending">조건 파악 중…</div>}{interviewResult && interviewResult.next_action === 'offer_registration' && <ListingDraftCard result={interviewResult} registering={isRegistering} onRegister={() => registerListing()}/>} {showMatch && <InlineMatchCard onInterest={() => { setShowMatch(false); setShowConnection(true); }} onReject={() => { setShowMatch(false); setInterviewError('다른 후보를 찾을 수 있도록 조건을 반영했습니다.'); }}/>} {showConnection && <InlineConnectionCard onChat={() => go('partnerChat')} onReject={() => { setShowConnection(false); setInterviewError('다른 후보를 찾을 수 있도록 조건을 반영했습니다.'); }}/>} {interviewError && <div className="inline-error" role="alert">{interviewError}</div>}<div ref={messagesEndRef} className="messages-end"/></div>{screen === 'interview' && turns.length === 0 && <ComposerHints onPick={setMessage}/>}<Composer value={message} onChange={setMessage} onSend={send} placeholder="무엇을 찾고 계세요?" disabled={isInterviewing || isRegistering} focusKey={currentSessionId}/></div>}
+      {(screen === 'interview' || screen === 'review') && <div className="chat-screen"><div className="messages" aria-live="polite">{turns.map((turn, index) => turn.role === 'user' ? <div className="user-bubble" key={`${turn.role}-${index}`}>{turn.content}</div> : <div className="assistant" key={`${turn.role}-${index}`}>{turn.content}</div>)}{isInterviewing && <div className="assistant pending">조건 파악 중…</div>}{registrationDraft && <ListingDraftCard result={registrationDraft} registering={isRegistering} registered={listingRegistered} hasExisting={Boolean(registeredListingId)} onRegister={() => registerListing()}/>} {showMatchApproval && <MatchApprovalCard onApprove={() => { setShowMatchApproval(false); setShowMatch(true); }}/>} {showMatch && <InlineMatchCard onInterest={() => { setShowMatch(false); setShowConnection(true); }} onReject={() => { setShowMatch(false); setInterviewError('다른 후보를 찾을 수 있도록 조건을 반영했습니다.'); }}/>} {showConnection && <InlineConnectionCard onChat={() => go('partnerChat')} onReject={() => { setShowConnection(false); setInterviewError('다른 후보를 찾을 수 있도록 조건을 반영했습니다.'); }}/>} {interviewError && <div className="inline-error" role="alert">{interviewError}</div>}<div ref={messagesEndRef} className="messages-end"/></div>{screen === 'interview' && turns.length === 0 && <ComposerHints onPick={setMessage}/>}<Composer value={message} onChange={setMessage} onSend={send} placeholder="무엇을 찾고 계세요?" disabled={isInterviewing || isRegistering} focusKey={currentSessionId}/></div>}
       {screen === 'match' && <div className="result-screen"><button className="back" onClick={() => go('review')}>← 인터뷰로 돌아가기</button><div className="status">● tomato 안에서 찾는 중</div><h2>가장 잘 맞는 기회</h2><div className="card"><h3>일본 · 원격 고객지원팀</h3><p>한국어 고객 문의를 돕는 일본 기업입니다. 상대방과 자동 번역 채팅이 가능합니다.</p><Tags/><div className="actions"><button className="primary" onClick={() => go('connection')}>관심 있어요</button><button onClick={() => go('interview')}>별로예요</button></div></div><Composer value={message} onChange={setMessage} onSend={send} placeholder="조건을 바꾸거나 다시 찾아보세요" disabled={isInterviewing || isRegistering}/></div>}
       {screen === 'connection' && <Detail title="연결된 상대" back={() => go('match')}><p>상대방도 관심을 표시했습니다. 지금 접속 중입니다.</p><div className="card"><h3>일본 · 원격 고객지원팀 <span className="tag">접속 중</span></h3><Row a="업무" b="고객 문의 응대"/><Row a="보수" b="월 ¥220,000~280,000"/><div className="actions"><button className="primary" onClick={() => go('partnerChat')}>상대방과 채팅하기</button><button onClick={() => go('contract')}>계약 조건 보기</button></div></div></Detail>}
       {screen === 'partnerChat' && <div className="chat-screen"><div className="conversation-header"><button className="conversation-back" aria-label="AI 인터뷰로 돌아가기" onClick={() => go('interview')}>←</button><div><strong>일본 · 원격 고객지원팀</strong><span>● 접속 중 · 자동 번역 켜짐</span></div><button className="contract-link" onClick={() => go('contract')}>계약 조건</button></div><div className="messages"><div className="assistant"><b>Yuki Tanaka · 일본</b><br/>안녕하세요. 고객지원 업무에 관심이 있으신가요?<small>상대방에게 일본어로 표시됨</small></div><div className="user-bubble">네, 근무 조건을 더 알고 싶어요.</div></div><Composer value={message} onChange={setMessage} onSend={() => setMessage('')} placeholder="상대방에게 메시지 보내기" focusKey="partner-chat"/></div>}
@@ -332,6 +355,10 @@ function InlineConnectionCard({ onChat, onReject }: { onChat: () => void; onReje
   return <div className="card inline-match-card"><div className="status">● 서로 관심이 있어요 · 연결됨</div><h3>일본 · 원격 고객지원팀</h3><p>상대방도 관심을 표시했습니다. 필요한 내용을 대화로 확인해보세요.</p><Tags/><div className="row"><span>대화 언어</span><b>각자 자기 언어로 입력 · 자동 번역</b></div><div className="actions"><button className="primary" onClick={onChat}>상대방과 채팅하기</button><button onClick={onReject}>연결 취소</button></div></div>;
 }
 
+function MatchApprovalCard({ onApprove }: { onApprove: () => void }) {
+  return <div className="assistant match-approval-message"><p>등록한 조건을 확인했어요. 이 조건으로 매칭해드릴까요?</p><div className="actions"><button className="primary" onClick={onApprove}>이 조건으로 매칭하기</button><span className="correction-hint">아래 입력창에서 먼저 수정할 수도 있어요.</span></div></div>;
+}
+
 function ComposerHints({ onPick }: { onPick: (value: string) => void }) {
   const examples = ['자유롭게 일하고 싶어요', '앱 만들어줄 팀을 찾고 있어요', '베트남 유통 파트너가 필요해요'];
   const choose = (example: string) => {
@@ -341,11 +368,10 @@ function ComposerHints({ onPick }: { onPick: (value: string) => void }) {
   return <div className="composer-hints" aria-label="대화 예시">{examples.map((example) => <button key={example} onClick={() => choose(example)}>{example}</button>)}</div>;
 }
 
-function ListingDraftCard({ result, registering, onRegister }: { result: TomatoInterviewResult; registering: boolean; onRegister: () => void }) {
-  const categoryLabels: Record<string, string> = { job: '일', talent: '인재', project: '프로젝트', partner: '파트너', customer: '고객', vendor: '업체', collaboration: '협업', other: '기타' };
-  const actorLabels: Record<string, string> = { individual: '개인', team: '팀', company: '기업' };
-  const requirementTags = Object.values(result.listing_draft.requirements).flatMap((value) => Array.isArray(value) ? value : value ? [value] : []).slice(0, 6);
-  return <div className="card registration-card"><div className="status">등록 제안</div><h3>{result.listing_draft.title || '새 연결 요청'}</h3><p>{result.listing_draft.summary}</p><div><span className="tag">{result.listing_draft.intent === 'seeking' ? '찾고 있어요' : '제안해요'}</span><span className="tag">{categoryLabels[result.listing_draft.category] ?? '연결'}</span>{result.actor_kind !== 'unknown' && <span className="tag">{actorLabels[result.actor_kind]}</span>}{requirementTags.map((tag, index) => <span className="tag" key={`${tag}-${index}`}>{tag}</span>)}</div><div className="actions"><button className="primary" disabled={registering} onClick={onRegister}>{registering ? '등록하고 찾는 중…' : '이대로 등록하기'}</button><span className="correction-hint">수정할 내용은 아래에 편하게 말하면 됩니다.</span></div></div>;
+function ListingDraftCard({ result, registering, registered, hasExisting, onRegister }: { result: TomatoInterviewResult; registering: boolean; registered: boolean; hasExisting: boolean; onRegister: () => void }) {
+  const positiveTags = Object.entries(result.listing_draft.requirements).filter(([key]) => key !== 'exclusions').flatMap(([, value]) => Array.isArray(value) ? value : value ? [value] : []).slice(0, 3);
+  const exclusions = Array.isArray(result.listing_draft.requirements.exclusions) ? result.listing_draft.requirements.exclusions.slice(0, 2) : [];
+  return <div className="card registration-card"><div className="status">{registered ? '등록됨 · 매칭 대기' : hasExisting ? '수정안' : '이렇게 이해했어요'}</div><h3>{result.listing_draft.title || '새 연결 요청'}</h3><p>{result.listing_draft.summary}</p>{(positiveTags.length > 0 || exclusions.length > 0) && <div className="interpretation-tags">{positiveTags.map((tag, index) => <span className="tag" key={`${tag}-${index}`}>{tag}</span>)}{exclusions.map((tag, index) => <span className="tag negative" key={`exclude-${tag}-${index}`}>피하고 싶어요 · {tag}</span>)}</div>}<div className="actions"><button className={`primary ${registered ? 'registered' : ''}`} disabled={registering || registered} onClick={onRegister}>{registered ? '등록됨 · 매칭 대기' : registering ? '저장하는 중…' : hasExisting ? '수정 저장하기' : '이대로 등록하기'}</button>{!registered && <span className="correction-hint">수정한 뒤 저장하면 매칭 전에 다시 확인합니다.</span>}{registered && <span className="correction-hint">아래 대화로 조건을 계속 수정할 수 있습니다.</span>}</div></div>;
 }
 function Composer({ value, onChange, onSend, placeholder, disabled = false, focusKey }: { value: string; onChange: (v: string) => void; onSend: () => void | Promise<void>; placeholder: string; disabled?: boolean; focusKey?: string | null }) {
   const inputRef = useRef<HTMLTextAreaElement>(null);

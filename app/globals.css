@@ -188,6 +188,8 @@ button { cursor: pointer; }
   color: #fff;
 }
 
+.primary.registered { border-color: #c8c9ce; background: #d5d6da; color: #666870; }
+
 .start-button { margin-top: 26px; }
 
 .chat-screen {
@@ -338,7 +340,11 @@ button { cursor: pointer; }
 
 .card h3 { margin: 0 0 8px; font-size: 17px; }
 .card p { color: #707078; font-size: 13px; line-height: 1.65; }
+.interpretation-tags { margin-top: 12px; }
+.match-approval-message { margin-top: 4px; margin-bottom: 22px; }
+.match-approval-message p { margin: 0; }
 .tag { display: inline-block; margin: 2px; padding: 5px 7px; border-radius: 6px; background: #eff1ff; color: #5361cb; font-size: 10px; }
+.tag.negative { background: #fff1f1; color: #aa5555; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .actions button:not(.primary) { padding: 10px 13px; border: 1px solid #d7d7dc; border-radius: 9px; background: #fff; }
 .back { width: fit-content; padding: 9px 12px; border: 1px solid #d6d8e4; border-radius: 9px; background: #f5f6ff; color: #4f5bc4; font-size: 12px; }
