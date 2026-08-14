@@ -333,7 +333,7 @@ function InlineConnectionCard({ onChat, onReject }: { onChat: () => void; onReje
 }
 
 function ComposerHints({ onPick }: { onPick: (value: string) => void }) {
-  const examples = ['일본에서 일하고 싶어요', '앱 만들어줄 팀을 찾고 있어요', '베트남 유통 파트너가 필요해요'];
+  const examples = ['자유롭게 일하고 싶어요', '앱 만들어줄 팀을 찾고 있어요', '베트남 유통 파트너가 필요해요'];
   const choose = (example: string) => {
     onPick(example);
     window.requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[placeholder="무엇을 찾고 계세요?"]')?.focus());
@@ -345,7 +345,7 @@ function ListingDraftCard({ result, registering, onRegister }: { result: TomatoI
   const categoryLabels: Record<string, string> = { job: '일', talent: '인재', project: '프로젝트', partner: '파트너', customer: '고객', vendor: '업체', collaboration: '협업', other: '기타' };
   const actorLabels: Record<string, string> = { individual: '개인', team: '팀', company: '기업' };
   const requirementTags = Object.values(result.listing_draft.requirements).flatMap((value) => Array.isArray(value) ? value : value ? [value] : []).slice(0, 6);
-  return <div className="card registration-card"><div className="status">등록할 내용</div><h3>{result.listing_draft.title || '새 연결 요청'}</h3><p>{result.listing_draft.summary}</p><div><span className="tag">{result.listing_draft.intent === 'seeking' ? '찾고 있어요' : '제안해요'}</span><span className="tag">{categoryLabels[result.listing_draft.category] ?? '연결'}</span>{result.actor_kind !== 'unknown' && <span className="tag">{actorLabels[result.actor_kind]}</span>}{requirementTags.map((tag, index) => <span className="tag" key={`${tag}-${index}`}>{tag}</span>)}</div><div className="actions"><button className="primary" disabled={registering} onClick={onRegister}>{registering ? '등록하고 찾는 중…' : '등록하고 찾기'}</button><span className="correction-hint">수정할 내용은 아래에 그대로 말하면 됩니다.</span></div></div>;
+  return <div className="card registration-card"><div className="status">등록 제안</div><h3>{result.listing_draft.title || '새 연결 요청'}</h3><p>{result.listing_draft.summary}</p><div><span className="tag">{result.listing_draft.intent === 'seeking' ? '찾고 있어요' : '제안해요'}</span><span className="tag">{categoryLabels[result.listing_draft.category] ?? '연결'}</span>{result.actor_kind !== 'unknown' && <span className="tag">{actorLabels[result.actor_kind]}</span>}{requirementTags.map((tag, index) => <span className="tag" key={`${tag}-${index}`}>{tag}</span>)}</div><div className="actions"><button className="primary" disabled={registering} onClick={onRegister}>{registering ? '등록하고 찾는 중…' : '이대로 등록하기'}</button><span className="correction-hint">수정할 내용은 아래에 편하게 말하면 됩니다.</span></div></div>;
 }
 function Composer({ value, onChange, onSend, placeholder, disabled = false, focusKey }: { value: string; onChange: (v: string) => void; onSend: () => void | Promise<void>; placeholder: string; disabled?: boolean; focusKey?: string | null }) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
