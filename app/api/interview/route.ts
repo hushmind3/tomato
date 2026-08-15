@@ -26,7 +26,8 @@ export async function POST(request: Request) {
       model: 'gpt-5.6-luna',
       instructions: TOMATO_CONNECTION_PERSONA,
       input: messages,
-      reasoning: { effort: 'low' },
+      // 인터뷰는 깊은 추론보다 자연스러운 왕복 속도가 우선이다.
+      reasoning: { effort: 'none' },
       text: { verbosity: 'low', format: { type: 'json_schema', name: 'tomato_connection_interview', strict: true, schema: TOMATO_INTERVIEW_SCHEMA } },
       max_output_tokens: 1200,
       store: false,
